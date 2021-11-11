@@ -1,15 +1,13 @@
 import express from "express";
 import spawn from "cross-spawn";
-import path from "path";
 import { ChildProcess } from "child_process";
 import { getChildLogger } from "../logger";
-import crypto from "crypto";
 import { serializeError } from "./error";
 import { v4 } from "uuid";
 
 const logger = getChildLogger("client");
 
-import * as Runner from "./runner";
+import * as Handler from "./handler";
 
 const API_VERSION = "2018-06-01";
 
@@ -24,7 +22,7 @@ type Payload = {
 };
 
 type InvokeOpts = {
-  function: Runner.Opts;
+  function: Handler.Opts;
   payload: Payload;
   env: Record<string, string>;
 };
@@ -210,13 +208,13 @@ export class Server {
   public async invoke(opts: InvokeOpts) {
     const fun = Server.generateFunctionID(opts.function);
     const pool = this.pool(fun);
-    return new Promise((resolve) => {
+    return new Promise<Response>((resolve) => {
       pool.requests[opts.payload.context.awsRequestId] = resolve;
       this.trigger(fun, opts);
     });
   }
 
-  public async drain(opts: Runner.Opts) {
+  public async drain(opts: Handler.Opts) {
     const fun = Server.generateFunctionID(opts);
     logger.debug("Draining function", fun);
     const pool = this.pool(fun);
@@ -225,14 +223,11 @@ export class Server {
     }
     pool.waiting = [];
     pool.processes = [];
+    Handler.build(opts);
   }
 
-  private static generateFunctionID(opts: Runner.Opts) {
-    return crypto
-      .createHash("sha256")
-      .update(path.normalize(opts.srcPath))
-      .digest("hex")
-      .substr(0, 8);
+  private static generateFunctionID(opts: Handler.Opts) {
+    return opts.id;
   }
 
   public response(fun: string, request: string, response: Response) {
@@ -243,24 +238,32 @@ export class Server {
     r(response);
   }
 
+  private built: Record<string, true> = {};
   private async trigger(fun: string, opts: InvokeOpts) {
     logger.debug("Triggering", fun);
     const pool = this.pool(fun);
     const w = pool.waiting.pop();
     if (w) return w(opts.payload);
+
+    // Check if built once before
+    if (!this.built[opts.function.id]) {
+      Handler.build(opts.function);
+      this.built[opts.function.id] = true;
+    }
+
     // Spawn new worker if one not immediately available
     pool.pending.push(opts.payload);
-    const cmd = Runner.resolve(opts.function.runtime)(opts.function);
     const id = v4();
+    const instructions = Handler.resolve(opts.function.runtime)(opts.function);
     const api = `127.0.0.1:${this.opts.port}/${id}/${fun}`;
     const env = {
       ...opts.env,
-      ...cmd.env,
+      ...instructions.run.env,
       AWS_LAMBDA_RUNTIME_API: api,
       IS_LOCAL: "true",
     };
-    logger.debug("Spawning", id, cmd.command);
-    const proc = spawn(cmd.command, cmd.args, {
+    logger.debug("Spawning", instructions.run.command);
+    const proc = spawn(instructions.run.command, instructions.run.args, {
       env,
     });
     proc.stdout!.on("data", (data) =>

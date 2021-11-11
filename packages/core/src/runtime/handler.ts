@@ -1,22 +1,78 @@
 import path from "path";
-import os from "os";
-import { Paths } from "../util";
+import fs from "fs-extra";
+import { State } from "../state";
+import spawn from "cross-spawn";
 
 export type Opts = {
-  srcPath: string;
-  outPath: string;
+  id: string;
+  root: string;
   runtime: string;
-  // Temporary
-  transpiledHandler: any;
+  srcPath: string;
+  handler: string;
 };
-
-type Handler = (info: Opts) => Command;
 
 type Command = {
   command: string;
   args: string[];
   env: Record<string, string>;
 };
+
+type Instructions = {
+  build: Command;
+  run: Command;
+};
+
+type Definer = (opts: Opts) => Instructions;
+
+function define<T extends Definer>(input: T) {
+  return input;
+}
+
+export const NodeHandler = define((opts) => {
+  const dir = path.dirname(opts.handler);
+  const ext = path.extname(opts.handler);
+  const base = path.basename(opts.handler).split(".")[0];
+  const file = [".ts", ".tsx", ".js", ".jsx"]
+    .map((ext) => path.join(dir, base + ext))
+    .find((file) => {
+      const p = path.join(opts.srcPath, file);
+      return fs.existsSync(p);
+    })!;
+
+  const target = State.Function.artifactsPath(
+    opts.root,
+    path.join(path.dirname(file), base + ".js")
+  );
+
+  return {
+    build: {
+      command: "./node_modules/.bin/esbuild",
+      args: [
+        "--bundle",
+        `--external:pg`,
+        `--external:deasync`,
+        `--external:kysely`,
+        `--external:aws-sdk`,
+        "--format=cjs",
+        "--sourcemap",
+        "--platform=node",
+        "--target=node14",
+        `--outfile=${target}`,
+        path.join(opts.srcPath, file),
+      ],
+      env: {},
+    },
+    run: {
+      command: "npx",
+      args: ["aws-lambda-ric", target.replace(".js", ext)],
+      env: {
+        AWS_LAMBDA_NODEJS_USE_ALTERNATIVE_CLIENT_1: "true",
+      },
+    },
+  };
+});
+
+/*
 
 export const NodeRunner: Handler = (opts) => {
   const handler = path
@@ -92,11 +148,24 @@ export const DotnetRunner: Handler = (opts) => {
     env: {},
   };
 };
+*/
 
-export function resolve(runtime: string): Handler {
-  if (runtime.startsWith("node")) return NodeRunner;
+export function build(opts: Opts) {
+  const instructions = resolve(opts.runtime)(opts);
+  console.log(instructions.build.args.join(" "));
+  spawn.sync(instructions.build.command, instructions.build.args, {
+    env: instructions.build.env,
+    cwd: opts.srcPath,
+    stdio: "inherit",
+  });
+}
+
+export function resolve(runtime: string): Definer {
+  if (runtime.startsWith("node")) return NodeHandler;
+  /*
   if (runtime.startsWith("go")) return GoRunner;
   if (runtime.startsWith("python")) return PythonRunner;
   if (runtime.startsWith("dotnetcore")) return DotnetRunner;
+  */
   throw new Error(`Unknown runtime ${runtime}`);
 }

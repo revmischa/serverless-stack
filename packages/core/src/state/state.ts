@@ -3,6 +3,8 @@ import path from "path";
 import os from "os";
 import { STS } from "aws-sdk";
 
+export * as Function from "./function";
+
 export function resolve(root: string, relative: string) {
   return path.resolve(root, ".sst", relative);
 }

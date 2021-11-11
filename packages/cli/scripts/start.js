@@ -17,6 +17,7 @@ const {
   STACK_DEPLOY_STATUS,
   Runtime,
   Bridge,
+  State,
 } = require("@serverless-stack/core");
 const s3 = new AWS.S3();
 
@@ -267,8 +268,14 @@ async function deployDebugStack(argv, config, cliInfo) {
 // This is a bad pattern but needs a larger refactor to avoid
 const bridge = new Bridge.Server();
 async function deployApp(argv, config, cliInfo) {
+  server = new Runtime.Server({
+    port: argv.port,
+  });
+  server.listen();
+  const funcs = State.Function.read(paths.appPath);
   if (argv.udp) {
     clientLogger.info(chalk.grey(`Using UDP connection`));
+<<<<<<< HEAD
     bridge.onRequest(async (req) => {
       const { debugSrcPath, debugSrcHandler, debugRequestTimeoutInMs } = req;
       const timeoutAt = Date.now() + debugRequestTimeoutInMs;
@@ -344,6 +351,9 @@ async function deployApp(argv, config, cliInfo) {
       }
     });
     config.debugBridge = await bridge.start(debugBucketName);
+=======
+    config.debugBridge = await bridge.start();
+>>>>>>> 04fd6a0e (Sync)
   }
 
   logger.info("");
@@ -389,6 +399,75 @@ async function deployApp(argv, config, cliInfo) {
     );
   }
 
+  const watcher = new Runtime.Watcher();
+  watcher.reload(paths.appPath);
+  watcher.onChange((opts) => {
+    console.log("New: Rebuilding...");
+    for (let opt of opts) {
+      if (server) server.drain(opt);
+    }
+    console.log("New: Done rebuilding.");
+  });
+
+  bridge.onRequest(async (req) => {
+    const timeoutAt = Date.now() + req.debugRequestTimeoutInMs;
+    const func = funcs.find((f) => f.id === req.functionId);
+
+    clientLogger.debug("Invoking local function...");
+    const result = await server.invoke({
+      function: {
+        ...func,
+        root: paths.appPath,
+      },
+      env: {
+        ...getSystemEnv(),
+        ...req.env,
+      },
+      payload: {
+        event: req.event,
+        context: req.context,
+        deadline: timeoutAt,
+      },
+    });
+
+    if (result.type === "success") {
+      clientLogger.info(
+        chalk.grey(
+          `${req.context.awsRequestId} RESPONSE ${objectUtil.truncate(
+            result.data,
+            {
+              totalLength: 1500,
+              arrayLength: 10,
+              stringLength: 100,
+            }
+          )}`
+        )
+      );
+      return {
+        type: "success",
+        body: result.data,
+      };
+    }
+
+    if (result.type === "failure") {
+      const errorMessage = isNodeRuntime(func.runtime)
+        ? deserializeError(result.error)
+        : result.rawError;
+      clientLogger.info(
+        `${chalk.grey(req.context.awsRequestId)} ${chalk.red("ERROR")}`,
+        util.inspect(errorMessage, { depth: null })
+      );
+      return {
+        type: "failure",
+        body: {
+          errorMessage: result.rawError.errorMessage,
+          errorType: result.rawError.errorType,
+          stackTrace: result.rawError.trace,
+        },
+      };
+    }
+  });
+
   return { deployRet, checksumData };
 }
 async function startWatcher() {
@@ -402,6 +481,7 @@ async function startWatcher() {
     },
   });
 }
+
 async function startRuntimeServer() {
   const port = await chooseServerPort(RUNTIME_SERVER_PORT);
   server = new Runtime.Server({ port });
@@ -443,6 +523,7 @@ async function startApiServer() {
     );
   }
 }
+
 function addInputListener() {
   if (IS_TEST) {
     return;
@@ -669,11 +750,6 @@ async function handleTranspileNode(
           fullPath,
           outSrcPath
         );
-    if (server)
-      server.drain({
-        srcPath: path.join(srcPath, handler),
-        outPath: outSrcPath,
-      });
 
     onSuccess({
       tsconfig,
@@ -959,11 +1035,6 @@ async function getInputFilesFromEsbuildMetafile(file) {
 async function handleCompileGo({ srcPath, handler, onSuccess, onFailure }) {
   try {
     const { outEntry } = await runCompile(srcPath, handler);
-    if (server)
-      server.drain({
-        srcPath: path.join(srcPath, handler),
-        outPath: "not_implemented",
-      });
     onSuccess({
       outEntryPoint: {
         entry: outEntry,
@@ -1069,11 +1140,6 @@ function runCompile(srcPath, handler) {
 async function handleBuildDotnet({ srcPath, handler, onSuccess, onFailure }) {
   try {
     const { outEntry } = await runBuildDotnet(srcPath, handler);
-    if (server)
-      server.drain({
-        srcPath: path.join(srcPath, handler),
-        outPath: "not_implemented",
-      });
     onSuccess({
       outEntryPoint: {
         entry: outEntry,
@@ -1181,11 +1247,6 @@ function handleBuildPython({ srcPath, handler, onSuccess }) {
   const handlerParts = handler.split(".");
   const outHandler = handlerParts.pop();
   const outEntry = handlerParts.join(".");
-  if (server)
-    server.drain({
-      srcPath: path.join(srcPath, handler),
-      outPath: "not_implemented",
-    });
 
   Promise.resolve("success").then(() =>
     onSuccess({
@@ -1359,7 +1420,6 @@ function startWebSocketClient() {
     if (code === WEBSOCKET_CLOSE_CODE.NEW_CLIENT_CONNECTED) {
       wsLogger.debug("Websocket connection closed due to new client connected");
       process.exit(0);
-      return;
     }
 
     // Case: disconnected due to 10min idle or 2hr WebSocket connection limit => reconnect

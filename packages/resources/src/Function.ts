@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/ban-types*/
+/* eslint-disable @typescript-eslint/ban-types */
 // Note: disabling ban-type rule so we don't get an error referencing the class Function
 
 import path from "path";
@@ -21,6 +21,7 @@ import {
   Permissions,
   attachPermissionsToRole,
 } from "./util/permission";
+import { State } from "@serverless-stack/core";
 
 const supportedRuntimes = [
   lambda.Runtime.NODEJS,
@@ -252,6 +253,7 @@ export class Function extends lambda.Function {
           timeout: cdk.Duration.seconds(900),
         };
       }
+
       if (root.debugBridge) {
         super(scope, id, {
           ...props,
@@ -296,6 +298,13 @@ export class Function extends lambda.Function {
           ...(debugOverrideProps || {}),
         });
       }
+      State.Function.append(root.appPath, {
+        id: this.node.addr,
+        handler: handler,
+        runtime: runtime.toString(),
+        srcPath: srcPath,
+      });
+      this.addEnvironment("SST_FUNCTION_ID", this.node.addr);
       this.attachPermissions([
         new iam.PolicyStatement({
           actions: ["s3:*"],
