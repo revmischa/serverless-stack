@@ -11,7 +11,6 @@ export class Watcher {
 
   public reload(root: string) {
     const funcs = State.Function.read(root);
-    const paths = funcs.map((item) => item.srcPath);
     chokidar
       .watch(paths, {
         persistent: true,
@@ -24,7 +23,7 @@ export class Watcher {
           stabilityThreshold: 20,
         },
       })
-      .on("change", (file) => {
+      .on("change", (file, stats) => {
         const full = path.join(process.cwd(), file);
         const matched = funcs.filter((o) => {
           return full.startsWith(path.resolve(o.srcPath));

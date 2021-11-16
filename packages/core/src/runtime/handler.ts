@@ -20,11 +20,15 @@ type Command = {
 type Instructions = {
   build: Command;
   run: Command;
+  watcher: {
+    include: string[];
+    ignore: string[];
+  };
 };
 
-type Definer = (opts: Opts) => Instructions;
+type Handler = (opts: Opts) => Instructions;
 
-function define<T extends Definer>(input: T) {
+function define<T extends Handler>(input: T) {
   return input;
 }
 
@@ -68,6 +72,10 @@ export const NodeHandler = define((opts) => {
       env: {
         AWS_LAMBDA_NODEJS_USE_ALTERNATIVE_CLIENT_1: "true",
       },
+    },
+    watcher: {
+      include: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"],
+      ignore: ["**/node_modules/**"],
     },
   };
 });
@@ -160,7 +168,7 @@ export function build(opts: Opts) {
   });
 }
 
-export function resolve(runtime: string): Definer {
+export function resolve(runtime: string): Handler {
   if (runtime.startsWith("node")) return NodeHandler;
   /*
   if (runtime.startsWith("go")) return GoRunner;
@@ -168,4 +176,9 @@ export function resolve(runtime: string): Definer {
   if (runtime.startsWith("dotnetcore")) return DotnetRunner;
   */
   throw new Error(`Unknown runtime ${runtime}`);
+}
+
+export function instructions(opts: Opts) {
+  const handler = resolve(opts.runtime);
+  return handler(opts);
 }

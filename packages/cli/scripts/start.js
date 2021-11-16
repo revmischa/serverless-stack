@@ -401,10 +401,10 @@ async function deployApp(argv, config, cliInfo) {
 
   const watcher = new Runtime.Watcher();
   watcher.reload(paths.appPath);
-  watcher.onChange((opts) => {
+  watcher.onChange((funcs) => {
     console.log("New: Rebuilding...");
-    for (let opt of opts) {
-      if (server) server.drain(opt);
+    for (let func of funcs) {
+      if (server) server.drain(func);
     }
     console.log("New: Done rebuilding.");
   });
