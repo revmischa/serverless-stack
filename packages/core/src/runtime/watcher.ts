@@ -1,35 +1,42 @@
 import { State } from "../state";
-import path from "path";
 import chokidar from "chokidar";
-import { Opts } from "./handler";
+import * as Handler from "./handler";
+import pm from "picomatch";
 
 export class Watcher {
-  private handleChange?: (opts: Opts[]) => void;
-  public onChange(input: (opts: Opts[]) => void) {
+  private handleChange?: (opts: Handler.Opts[]) => void;
+
+  public onChange(input: (opts: Handler.Opts[]) => void) {
     this.handleChange = input;
   }
 
   public reload(root: string) {
     const funcs = State.Function.read(root);
+    const instructions = funcs.map(
+      (f) => [f, Handler.instructions(f)] as const
+    );
+    const paths = instructions.flatMap(([_, i]) => i.watcher.include);
+    const matchers = instructions.map(
+      ([f, i]) => [f, i.watcher.include.map((p) => pm(p))] as const
+    );
+
     chokidar
       .watch(paths, {
         persistent: true,
         ignoreInitial: true,
         followSymlinks: false,
         disableGlobbing: false,
-        ignored: ["**/node_modules/**", "**/.build/**", "**/.sst/**"],
+        ignored: ["**/.build/**", "**/.sst/**"],
         awaitWriteFinish: {
           pollInterval: 100,
           stabilityThreshold: 20,
         },
       })
-      .on("change", (file, stats) => {
-        const full = path.join(process.cwd(), file);
-        const matched = funcs.filter((o) => {
-          return full.startsWith(path.resolve(o.srcPath));
-        });
-        if (!matched.length) return;
-        this.handleChange?.(matched);
+      .on("change", (file) => {
+        const funcs = matchers
+          .filter(([_, matchers]) => matchers.some((m) => m(file)))
+          .map(([f]) => f);
+        this.handleChange?.(funcs);
       });
   }
 }

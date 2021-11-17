@@ -28,6 +28,7 @@ const {
   deploy,
   prepareCdk,
   writeConfig,
+  isNodeRuntime,
   getTsBinPath,
   checkFileExists,
   getEsbuildTarget,
@@ -42,7 +43,7 @@ const ApiServer = require("./util/ApiServer");
 const ConstructsState = require("./util/ConstructsState");
 const CdkWatcherState = require("./util/CdkWatcherState");
 const LambdaWatcherState = require("./util/LambdaWatcherState");
-const { serializeError } = require("../lib/serializeError");
+const { serializeError, deserializeError } = require("../lib/serializeError");
 
 const RUNTIME_SERVER_PORT = 12557;
 const API_SERVER_PORT = 4000;
@@ -101,8 +102,10 @@ const clientLogger = {
 };
 
 module.exports = async function (argv, config, cliInfo) {
-  const { inputFiles: cdkInputFiles, lintOutput: cdkLintOutput } =
-    await prepareCdk(argv, cliInfo, config);
+  const {
+    inputFiles: cdkInputFiles,
+    lintOutput: cdkLintOutput,
+  } = await prepareCdk(argv, cliInfo, config);
 
   // Deploy debug stack
   const debugStackOutputs = await deployDebugStack(argv, config, cliInfo);
@@ -275,85 +278,7 @@ async function deployApp(argv, config, cliInfo) {
   const funcs = State.Function.read(paths.appPath);
   if (argv.udp) {
     clientLogger.info(chalk.grey(`Using UDP connection`));
-<<<<<<< HEAD
-    bridge.onRequest(async (req) => {
-      const { debugSrcPath, debugSrcHandler, debugRequestTimeoutInMs } = req;
-      const timeoutAt = Date.now() + debugRequestTimeoutInMs;
-      const ret = await lambdaWatcherState.getTranspiledHandler(
-        debugSrcPath,
-        debugSrcHandler
-      );
-      const runtime = ret.runtime;
-      const transpiledHandler = ret.handler;
-      clientLogger.debug("Transpiled handler", {
-        debugSrcPath,
-        debugSrcHandler,
-      });
-      clientLogger.info(
-        chalk.grey(
-          `${req.context.awsRequestId} REQUEST ${
-            req.env.AWS_LAMBDA_FUNCTION_NAME
-          } [${getHandlerFullPosixPath(debugSrcPath, debugSrcHandler)}]`
-        )
-      );
-
-      clientLogger.debug("Invoking local function...");
-      const result = await server.invoke({
-        function: {
-          runtime,
-          srcPath: getHandlerFullPosixPath(debugSrcPath, debugSrcHandler),
-          outPath: "not_implemented",
-          transpiledHandler,
-        },
-        env: {
-          ...getSystemEnv(),
-          ...req.env,
-        },
-        payload: {
-          event: req.event,
-          context: req.context,
-          deadline: timeoutAt,
-        },
-      });
-
-      if (result.type === "success") {
-        clientLogger.info(
-          chalk.grey(
-            `${req.context.awsRequestId} RESPONSE ${objectUtil.truncate(
-              result.data,
-              {
-                totalLength: 1500,
-                arrayLength: 10,
-                stringLength: 100,
-              }
-            )}`
-          )
-        );
-        return {
-          type: "success",
-          body: result.data,
-        };
-      }
-
-      if (result.type === "failure") {
-        clientLogger.info(
-          `${chalk.grey(req.context.awsRequestId)} ${chalk.red("ERROR")}`,
-          util.inspect(result.rawError, { depth: null })
-        );
-        return {
-          type: "failure",
-          body: {
-            errorMessage: result.rawError.errorMessage,
-            errorType: result.rawError.errorType,
-            stackTrace: result.rawError.trace,
-          },
-        };
-      }
-    });
-    config.debugBridge = await bridge.start(debugBucketName);
-=======
     config.debugBridge = await bridge.start();
->>>>>>> 04fd6a0e (Sync)
   }
 
   logger.info("");
@@ -1595,6 +1520,7 @@ async function onClientMessage(message) {
 
   // Invoke local function
   clientLogger.debug("Invoking local function...");
+  console.log(transpiledHandler);
   server
     .invoke({
       function: {

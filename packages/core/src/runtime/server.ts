@@ -240,7 +240,7 @@ export class Server {
 
   private built: Record<string, true> = {};
   private async trigger(fun: string, opts: InvokeOpts) {
-    logger.debug("Triggering", fun);
+    logger.debug("Triggering", opts);
     const pool = this.pool(fun);
     const w = pool.waiting.pop();
     if (w) return w(opts.payload);
@@ -255,14 +255,14 @@ export class Server {
     pool.pending.push(opts.payload);
     const id = v4();
     const instructions = Handler.resolve(opts.function.runtime)(opts.function);
-    const api = `127.0.0.1:${this.opts.port}/${id}/${fun}`;
+    const api = `127.0.0.1:${this.opts.port}/${id}/${opts.function.id}`;
     const env = {
       ...opts.env,
       ...instructions.run.env,
       AWS_LAMBDA_RUNTIME_API: api,
       IS_LOCAL: "true",
     };
-    logger.debug("Spawning", instructions.run.command);
+    logger.debug("Spawning", instructions);
     const proc = spawn(instructions.run.command, instructions.run.args, {
       env,
     });
