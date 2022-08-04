@@ -244,7 +244,7 @@ export class Auth extends Construct implements SSTConstruct {
   }
 
   /**
-   * Attaches the given list of permissions to the authenticated users. This allows the authenticated users to access other AWS resources.
+   * Attaches the given list of permissions to the unauthenticated users. This allows the unauthenticated users to access other AWS resources.
    *
    * @example
    * ```js
